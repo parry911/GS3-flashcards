@@ -300,7 +300,11 @@ function buildQueue(){
   S.queue=q; S.round=1; S.pos=0; S.back=false; save();
 }
 function validQueue(){return Array.isArray(S.queue)&&S.queue.every(id=>cards[id]);}
-if(!validQueue()) buildQueue();
+if(Array.isArray(S.queue)&&S.queue.length&&!validQueue()){ /* cards removed in a deck update: skip them, keep your place */
+  const gone=S.queue.slice(0,S.pos).filter(id=>!cards[id]).length;
+  S.queue=S.queue.filter(id=>cards[id]); S.pos=Math.max(0,Math.min(S.pos-gone,S.queue.length));
+}
+if(!validQueue()||!S.queue.length) buildQueue();
 else{ /* drop repeat copies left by the old "show missed card again" behaviour */
   const head=[...new Set(S.queue.slice(0,S.pos))], seen=new Set(head);
   const tail=[...new Set(S.queue.slice(S.pos))].filter(id=>!seen.has(id));

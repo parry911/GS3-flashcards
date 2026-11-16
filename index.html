@@ -296,10 +296,15 @@ function buildQueue(){
   } else {
     const all=shuffle(gs.flatMap(g=>g.ids)); q=all.filter(isMissed).concat(all.filter(i=>!isMissed(i)));
   }
-  S.queue=q; S.pos=0; S.back=false; save();
+  S.queue=q; S.round=1; S.pos=0; S.back=false; save();
 }
 function validQueue(){return Array.isArray(S.queue)&&S.queue.every(id=>cards[id]);}
 if(!validQueue()) buildQueue();
+else{ /* drop repeat copies left by the old "show missed card again" behaviour */
+  const head=[...new Set(S.queue.slice(0,S.pos))], seen=new Set(head);
+  const tail=[...new Set(S.queue.slice(S.pos))].filter(id=>!seen.has(id));
+  S.queue=head.concat(tail); S.pos=head.length; save();
+}
 
 /* ---------- reveal state ---------- */
 let R=null;
@@ -430,12 +435,12 @@ function step(i){ if(!R.steps)return; if(R.steps[i]<R.max[i]){R.steps[i]++; rend
 function nextStep(){ if(!R.steps) return false; const i=R.steps.findIndex((s,j)=>s<R.max[j]); if(i<0) return false; step(i); return true; }
 function showAll(){ if(!R.steps)return; R.steps=R.max.slice(); render(); }
 function renderDone(stage){
-  const missed=[...new Set(S.queue)].filter(isMissed);
-  stage.innerHTML=`<div class="card"><div class="done"><div class="kicker" style="justify-content:center"><span>Round complete</span></div>
-    <h2>${missed.length?missed.length+" card"+(missed.length>1?"s":"")+" to review":"Every card known"}</h2>
-    <p>${missed.length?"Go through the missed cards now while they are fresh, or start a new round.":"Start a new round, or shuffle to test recall out of order."}</p>
+  const missed=[...new Set(S.queue)].filter(isMissed), rn=S.round||1, tot=new Set(S.queue).size;
+  stage.innerHTML=`<div class="card"><div class="done"><div class="kicker" style="justify-content:center"><span>Round ${rn} complete</span></div>
+    <h2>${missed.length?missed.length+" of "+tot+" card"+(tot>1?"s":"")+" still missed":"Every card known"}</h2>
+    <p>${missed.length?"Go through only the missed cards now, or start a new round.":"Start a new round, or shuffle to test recall out of order."}</p>
     <div class="row">${missed.length?'<button class="btn miss" style="flex:0 0 auto" id="revMiss">Review missed</button>':""}<button class="btn" id="newRound">New round</button></div></div></div>`;
-  if(missed.length) $("#revMiss").onclick=()=>{S.queue=shuffle(missed.slice()); S.pos=0; S.back=false; save(); render();};
+  if(missed.length) $("#revMiss").onclick=()=>{S.queue=shuffle(missed.slice()); S.round=rn+1; S.pos=0; S.back=false; save(); render();};
   $("#newRound").onclick=()=>{buildQueue(); render();};
   actions([]);
 }
@@ -451,10 +456,7 @@ function flip(){const card=document.querySelector(".card"); if(card) card.classL
 function prev(){ if(S.pos>0){S.pos--; S.back=false; R=null; save(); render(); window.scrollTo(0,0);} }
 function grade(s){
   const id=S.queue[S.pos], o=S.st[id]||{seen:0,miss:0};
-  o.seen++; o.s=s; if(s==="m"){o.miss++;
-    const later=S.queue.indexOf(id,S.pos+1);
-    if(later<0){const at=Math.min(S.pos+6,S.queue.length); S.queue.splice(at,0,id);}
-  }
+  o.seen++; o.s=s; if(s==="m") o.miss++;
   S.st[id]=o; S.pos++; S.back=false; R=null; save(); render(); window.scrollTo(0,0);
 }
 /* ---------- progress sheet ---------- */

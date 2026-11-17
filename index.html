@@ -342,7 +342,7 @@ function resetReveal(c){
 const allDone=()=>!R||!R.steps||R.steps.every((s,i)=>s>=R.max[i]);
 
 /* ---------- render ---------- */
-const BUILD="updated 17 Nov, 9:15 pm";
+const BUILD="updated 17 Nov, 9:30 pm";
 const fmt=s=>(s||"").replace(/\[\[(.+?)\]\]/g,'<span class="fig">$1</span>');
 function counts(ids){let k=0,m=0; ids.forEach(id=>{const s=S.st[id]; if(s&&s.s==="k")k++; else if(s&&s.s==="m")m++;}); return {k,m,n:ids.length-k-m,t:ids.length};}
 function render(){
@@ -523,6 +523,7 @@ $("#progBtn").onclick=progressSheet;
 /* ---------- sync through a private GitHub gist ---------- */
 const SK="gs3sync.v1", GFN="gs3-progress.json", GDESC="GS3 flashcards progress (used by the flashcard site; do not delete)";
 let SY=null; try{SY=JSON.parse(localStorage.getItem(SK));}catch(e){}
+if(SY&&!SY.dev){SY.dev=Math.random().toString(36).slice(2,8); SY.dirty=false; try{localStorage.setItem(SK,JSON.stringify(SY));}catch(e){}}
 const saveSY=()=>{try{SY?localStorage.setItem(SK,JSON.stringify(SY)):localStorage.removeItem(SK);}catch(e){}};
 function toCompact(st){const o={}; Object.entries(st).forEach(([id,x])=>{ if(x.s||(x.r&&x.r.some(v=>v===0||v===1))) o[id]=[x.s||"",x.seen||0,x.miss||0,x.t||0,(x.r||[]).map(v=>v===1?"1":v===0?"0":"_").join("")]; }); return o;}
 function fromCompact(c){const out={}; Object.entries(c||{}).forEach(([id,a])=>{const o={seen:a[1],miss:a[2]}; if(a[0]) o.s=a[0]; if(a[3]) o.t=a[3]; if(a[4]) o.r=[...a[4]].map(ch=>ch==="1"?1:ch==="0"?0:null); out[id]=o;}); return out;}
@@ -543,28 +544,41 @@ async function gh(path,opt){opt=opt||{};
   const r=await fetch("https://api.github.com"+path,{cache:"no-store",method:opt.method||"GET",body:opt.body?JSON.stringify(opt.body):undefined,
     headers:Object.assign({Authorization:"Bearer "+SY.token,Accept:"application/vnd.github+json"},opt.body?{"Content-Type":"application/json"}:{})});
   if(!r.ok){const e=new Error("HTTP "+r.status); e.status=r.status; throw e;} return r.json();}
+const myFile=()=>"dev-"+SY.dev+".json";
+async function readDocs(g){ const out=[];
+  for(const [name,f] of Object.entries(g.files||{})){ if(!(name===GFN||/^dev-.+\.json$/.test(name))) continue;
+    try{ const txt=f.truncated?await (await fetch(f.raw_url,{cache:"no-store"})).text():f.content; const d=JSON.parse(txt); d._own=(name===myFile()); out.push(d); }catch(e){} }
+  return out; }
+function newestOther(docs){ let best=null; docs.forEach(d=>{ if(!d._own&&d.at&&Array.isArray(d.at.queue)&&(!best||d.at.t>best.t)) best=d.at; }); return best; }
 async function findGist(){
   for(let p=1;p<=5;p++){const list=await gh("/gists?per_page=100&page="+p); const g=list.find(x=>x.description===GDESC); if(g) return g.id; if(list.length<100) break;}
-  const g=await gh("/gists",{method:"POST",body:{description:GDESC,public:false,files:{[GFN]:{content:JSON.stringify({v:1,resetAt:S.resetAt||0,st:{}})}}}}); return g.id;
+  const g=await gh("/gists",{method:"POST",body:{description:GDESC,public:false,files:{[myFile()]:{content:JSON.stringify({v:2,resetAt:S.resetAt||0,st:{}})}}}}); return g.id;
 }
 let syncing=false, again=false, st8="", sTimer=null;
 function syncLabel(t){st8=t; const b=$("#syncBtn"); if(b) b.textContent=t;}
 const hhmm=d=>d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
-function queueSync(){ if(!SY) return; clearTimeout(sTimer); syncLabel("Saving…"); sTimer=setTimeout(syncNow,2500); }
+let edits=0;
+function queueSync(){ if(!SY) return; edits++; SY.dirty=true; saveSY(); clearTimeout(sTimer); syncLabel("Saving…"); sTimer=setTimeout(syncNow,2500); }
+let remoteAt=null;
 async function syncNow(){
   if(!SY) return; if(syncing){again=true; return;} syncing=true; clearTimeout(sTimer);
   try{
     if(!SY.gist){SY.gist=await findGist(); saveSY();}
-    const g=await gh("/gists/"+SY.gist); const f=g.files&&g.files[GFN];
-    let txt=f?f.content:""; if(f&&f.truncated){txt=await (await fetch(f.raw_url,{cache:"no-store"})).text();}
-    if(txt){ const before=JSON.stringify(S.st)+placeSig(); mergeIn(JSON.parse(txt)); if(JSON.stringify(S.st)+placeSig()!==before){ if(R&&!S.back) R=null; render(); } }
-    await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[GFN]:{content:JSON.stringify({v:1,resetAt:S.resetAt||0,st:toCompact(S.st),at:{t:S.at||0,line:S.line,part:S.part,type:S.type,mode:S.mode,missed:S.missed,queue:S.queue,pos:S.pos,round:S.round}})}}}});
+    const g=await gh("/gists/"+SY.gist); const docs=await readDocs(g); remoteAt=newestOther(docs);
+    if(!docs.some(d=>d._own)) SY.dirty=true;
+    const rz=Math.max(0,...docs.map(d=>d.resetAt||0));
+    const before=JSON.stringify(S.st)+placeSig();
+    docs.forEach(d=>mergeIn(Object.assign({},d,{resetAt:rz,at:d._own?null:d.at})));
+    if(JSON.stringify(S.st)+placeSig()!==before){ if(R&&!S.back) R=null; render(); }
+    const e0=edits;
+    if(SY.dirty) await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[myFile()]:{content:JSON.stringify({v:2,resetAt:S.resetAt||0,st:toCompact(S.st),at:{t:S.at||0,dev:SY.dev,line:S.line,part:S.part,type:S.type,mode:S.mode,missed:S.missed,queue:S.queue,pos:S.pos,round:S.round}})}}}});
+    if(SY.dirty&&edits===e0) SY.dirty=false;
     SY.last=Date.now(); saveSY(); syncLabel("Synced "+hhmm(new Date()));
   }catch(e){
     if(e.status===404&&SY.gist){SY.gist=null; saveSY(); again=true;}
     syncLabel(e.status===401?"Sync key stopped working: tap to fix":"Not synced: tap to retry");
   }
-  syncing=false; if(again){again=false; syncNow();}
+  syncing=false; sTimer=null; if(again){again=false; syncNow();}
 }
 function syncSheet(html){$("#sbox").innerHTML=html; $("#smodal").classList.add("on");}
 const closeSync=()=>$("#smodal").classList.remove("on");
@@ -580,21 +594,30 @@ function setupSheet(err){
   $("#sClose").onclick=closeSync;
   $("#sGo").onclick=async()=>{ const tok=$("#sTok").value.trim(); if(!tok){$("#sTok").focus(); return;}
     $("#sGo").disabled=true; $("#sGo").textContent="Connecting…";
-    SY={token:tok}; try{ SY.gist=await findGist(); saveSY(); closeSync(); await syncNow(); toast("Sync is on"); }
+    SY={token:tok,dev:Math.random().toString(36).slice(2,8),dirty:true}; try{ SY.gist=await findGist(); saveSY(); closeSync(); await syncNow(); toast("Sync is on"); }
     catch(e){ SY=null; saveSY(); setupSheet(e.status===401?"GitHub didn't accept that key. Copy it again, all of it.":e.status===403||e.status===404?"That key can't make gists. Make a new one with only 'gist' ticked.":"Couldn't reach GitHub. Check your internet and try again."); }
   };
 }
-function onSheet(){
-  syncSheet(`<h3>Sync is on</h3><p>Your progress saves to your private GitHub gist and loads on your other devices by itself.${SY.last?" Last synced "+hhmm(new Date(SY.last))+".":""}</p>
+function jumpTo(a){ const q=a.queue.filter(id=>cards[id]); if(!q.length) return; let pos=q.indexOf(a.queue[a.pos]); if(pos<0) pos=Math.min(a.pos,q.length-1);
+  Object.assign(S,{line:a.line,part:a.part,type:a.type,mode:a.mode,missed:!!a.missed,queue:q,pos,round:a.round||1,back:false}); R=null; save(); render(); window.scrollTo(0,0); toast("Moved to card "+(pos+1)); }
+async function onSheet(){
+  syncSheet(`<h3>Sync is on</h3><p>Checking…</p>`);
+  try{ const g=await gh("/gists/"+SY.gist); remoteAt=newestOther(await readDocs(g)); }catch(e){}
+  const other=!!(remoteAt&&Array.isArray(remoteAt.queue));
+  const where=other?`Your other device was last on <b>card ${remoteAt.pos+1}</b>${remoteAt.t>1e12?" at "+hhmm(new Date(remoteAt.t)):""}.`:"Your other device hasn't saved a place yet. Open the site there once.";
+  syncSheet(`<h3>Sync is on</h3><p>Progress and your place in the deck save to your private GitHub gist.${SY.last?" Last synced "+hhmm(new Date(SY.last))+".":""}</p><p>${where}</p>
+   ${other?'<div class="row" style="justify-content:flex-end;margin-bottom:10px"><button class="btn got" style="flex:0 0 auto" id="sJump">Go to that card</button></div>':""}
    <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="sOff">Turn off here</button><button class="btn ghost" id="sClose">Close</button><button class="btn" style="flex:0 0 auto" id="sNow">Sync now</button></div>`);
   $("#sClose").onclick=closeSync;
   $("#sNow").onclick=async()=>{closeSync(); await syncNow();};
+  if(other) $("#sJump").onclick=()=>{closeSync(); jumpTo(remoteAt);};
   $("#sOff").onclick=()=>{SY=null; saveSY(); closeSync(); syncLabel("Sync across devices"); toast("Sync off on this device");};
 }
 $("#syncBtn").onclick=()=>{ if(!SY) setupSheet(); else if(/fix/.test(st8)) setupSheet(); else if(/retry/.test(st8)) syncNow(); else onSheet(); };
 $("#smodal").onclick=e=>{if(e.target.id==="smodal") closeSync();};
 document.addEventListener("visibilitychange",()=>{ if(!SY) return; if(document.visibilityState==="visible") syncNow(); else if(sTimer) syncNow(); });
 syncLabel(SY?"Syncing…":"Sync across devices"); if(SY) syncNow();
+setInterval(()=>{ if(SY&&document.visibilityState==="visible"&&!sTimer&&!syncing) syncNow(); },20000);
 $("#pmodal").onclick=e=>{if(e.target.id==="pmodal") $("#pmodal").classList.remove("on");};
 $("#resetBtn").onclick=()=>$("#modal").classList.add("on");
 $("#mCancel").onclick=()=>$("#modal").classList.remove("on");

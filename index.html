@@ -292,7 +292,11 @@ function load(){
   try{const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.v===2) return s;}catch(e){}
   return {v:2,type:"all",line:"all",part:"all",mode:"order",missed:false,queue:null,pos:0,st:{},back:false};
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+let lastSig=null;
+if(!S.at&&S.pos>0) S.at=1+S.pos; /* older saves had no time stamp: the device further into the deck wins */
+const placeSig=()=>[S.line,S.part,S.type,S.mode,S.missed,S.pos,S.round,(S.queue||[]).length,(S.queue||[])[0],(S.queue||[])[S.pos]].join("|");
+function save(){const sig=placeSig(); if(sig!==lastSig){ if(lastSig!==null){S.at=Date.now(); setTimeout(()=>{try{queueSync();}catch(e){}},0);} lastSig=sig; }
+  try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
 const isMissed=id=>S.st[id]&&S.st[id].s==="m";
 function idsOf(g,type){let ids=[]; if(type!=="say") ids=ids.concat(g.topic); if(type!=="topic") ids=ids.concat(g.say); return ids;}
 function scopeGroups(){
@@ -338,7 +342,7 @@ function resetReveal(c){
 const allDone=()=>!R||!R.steps||R.steps.every((s,i)=>s>=R.max[i]);
 
 /* ---------- render ---------- */
-const BUILD="updated 17 Nov, 9 pm";
+const BUILD="updated 17 Nov, 9:15 pm";
 const fmt=s=>(s||"").replace(/\[\[(.+?)\]\]/g,'<span class="fig">$1</span>');
 function counts(ids){let k=0,m=0; ids.forEach(id=>{const s=S.st[id]; if(s&&s.s==="k")k++; else if(s&&s.s==="m")m++;}); return {k,m,n:ids.length-k-m,t:ids.length};}
 function render(){
@@ -527,6 +531,12 @@ function mergeIn(data){
   if(rz>(S.resetAt||0)){ Object.keys(S.st).forEach(id=>{ if((S.st[id].t||0)<rz) delete S.st[id]; }); S.resetAt=rz; }
   Object.entries(fromCompact(data.st)).forEach(([id,o])=>{ if((o.t||0)<(S.resetAt||0)) return; const l=S.st[id];
     if(!l||(o.t||0)>(l.t||0)||(!(o.t||l.t)&&(o.seen||0)>(l.seen||0))) S.st[id]=o; });
+  const a=data.at;
+  if(a&&a.t>(S.at||0)&&Array.isArray(a.queue)){ const q=a.queue.filter(id=>cards[id]);
+    if(q.length){ const cur=a.queue[a.pos]; let pos=q.indexOf(cur); if(pos<0) pos=Math.min(a.pos,q.length);
+      const moved=JSON.stringify([S.line,S.type,S.queue&&S.queue[S.pos]])!==JSON.stringify([a.line,a.type,cur]);
+      Object.assign(S,{line:a.line,part:a.part,type:a.type,mode:a.mode,missed:!!a.missed,queue:q,pos,round:a.round||1,back:false,at:a.t}); R=null; lastSig=placeSig();
+      if(moved) setTimeout(()=>toast("Continuing from your other device"),300); } }
   save();
 }
 async function gh(path,opt){opt=opt||{};
@@ -547,8 +557,8 @@ async function syncNow(){
     if(!SY.gist){SY.gist=await findGist(); saveSY();}
     const g=await gh("/gists/"+SY.gist); const f=g.files&&g.files[GFN];
     let txt=f?f.content:""; if(f&&f.truncated){txt=await (await fetch(f.raw_url,{cache:"no-store"})).text();}
-    if(txt){ const before=JSON.stringify(S.st); mergeIn(JSON.parse(txt)); if(JSON.stringify(S.st)!==before){ if(R&&!S.back) R=null; render(); } }
-    await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[GFN]:{content:JSON.stringify({v:1,resetAt:S.resetAt||0,st:toCompact(S.st)})}}}});
+    if(txt){ const before=JSON.stringify(S.st)+placeSig(); mergeIn(JSON.parse(txt)); if(JSON.stringify(S.st)+placeSig()!==before){ if(R&&!S.back) R=null; render(); } }
+    await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[GFN]:{content:JSON.stringify({v:1,resetAt:S.resetAt||0,st:toCompact(S.st),at:{t:S.at||0,line:S.line,part:S.part,type:S.type,mode:S.mode,missed:S.missed,queue:S.queue,pos:S.pos,round:S.round}})}}}});
     SY.last=Date.now(); saveSY(); syncLabel("Synced "+hhmm(new Date()));
   }catch(e){
     if(e.status===404&&SY.gist){SY.gist=null; saveSY(); again=true;}

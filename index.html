@@ -156,6 +156,7 @@ select{font:inherit;font-size:13.5px;border:0;background:var(--strip);color:var(
 .card.back{cursor:pointer}
 .rw.s2{cursor:default}
 .fliphint{margin-top:16px;font-size:12.5px;color:var(--ink3);text-align:center}
+.flipback{margin-top:10px;font:inherit;font-size:13px;color:var(--ink2);background:none;border:1px solid var(--line,#ddd);border-radius:999px;padding:6px 14px;cursor:pointer}
 .foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:var(--ink3);gap:8px;flex-wrap:wrap}
 .linkbtn{border:0;background:none;color:var(--ink3);text-decoration:underline;text-underline-offset:3px;font-size:12px;padding:4px}
 .toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--card);font-size:13px;padding:8px 14px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
@@ -322,10 +323,11 @@ function resetReveal(c){
 const allDone=()=>!R||!R.steps||R.steps.every((s,i)=>s>=R.max[i]);
 
 /* ---------- render ---------- */
+const BUILD="updated 17 Nov, 5 pm";
 const fmt=s=>(s||"").replace(/\[\[(.+?)\]\]/g,'<span class="fig">$1</span>');
 function counts(ids){let k=0,m=0; ids.forEach(id=>{const s=S.st[id]; if(s&&s.s==="k")k++; else if(s&&s.s==="m")m++;}); return {k,m,n:ids.length-k-m,t:ids.length};}
 function render(){
-  $("#title").textContent=DECK.title; $("#subtitle").textContent=DECK.subtitle;
+  $("#title").textContent=DECK.title; $("#subtitle").textContent=DECK.subtitle+" · "+BUILD;
   document.querySelectorAll("#typeSeg button").forEach(b=>b.classList.toggle("on",b.dataset.v===S.type));
   document.querySelectorAll("#modeSeg button").forEach(b=>b.classList.toggle("on",b.dataset.v===S.mode));
   const ls=$("#lineSel"); ls.innerHTML='<option value="all">All lines</option>'+DECK.lines.map(l=>`<option value="${l.id}">${l.id} ${l.short}</option>`).join(""); ls.value=S.line;
@@ -347,10 +349,10 @@ function render(){
     $("#front").onclick=flip;
     actions([["ghost","‹","prev"],["primary","Show answer","flip"],["ghost","›","next"]]);
   } else {
-    stage.innerHTML=`<div class="card back" id="backcard">${kick}${backHTML(c)}<div class="fliphint">Tap the card to flip back and try again</div></div>`;
+    stage.innerHTML=`<div class="card back" id="backcard">${kick}${backHTML(c)}<div class="fliphint">Tap a point to open it<br><button class="flipback" id="flipBack">↺ Flip back</button></div></div>`;
     requestAnimationFrame(drawEdges);
     bindRows();
-    $("#backcard").onclick=e=>{ if(e.target.closest(".rw.s0,.rw.s1")) return; unflip(); };
+    $("#flipBack").onclick=e=>{e.stopPropagation(); unflip();};
     const done=allDone();
     actions([["ghost","‹","prev"]].concat(R.steps&&!done?[["ghost","Show all","all"]]:[]).concat([["miss","Missed <kbd>1</kbd>","miss"],["got","Got it <kbd>2</kbd>","got"],["ghost","›","next"]]));
   }

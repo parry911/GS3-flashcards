@@ -53,6 +53,15 @@ header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
 header h1{font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:.2px;margin:0}
 header .sub{font-size:13px;color:var(--ink3)}
 .controls{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.handoff{display:none;align-items:center;gap:10px;flex-wrap:wrap;background:var(--accent-soft);border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:14px;color:var(--ink)}
+.handoff.on{display:flex}
+.handoff .bt{display:flex;gap:8px;margin-left:auto}
+.handoff .tx{flex:1;min-width:180px;line-height:1.4}
+.handoff .tx small{display:block;color:var(--ink2);font-size:12.5px}
+.handoff button{font:inherit;font-size:13.5px;font-weight:600;border-radius:9px;padding:7px 12px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.handoff button.go{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.devrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.devrow .tx{flex:1;line-height:1.35}.devrow small{color:var(--ink3);display:block;font-size:12.5px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .seg{display:inline-flex;background:var(--strip);border-radius:10px;padding:3px;gap:2px;flex:1 1 auto}
 .seg button{flex:1;border:0;background:transparent;border-radius:8px;padding:7px 10px;font-size:13.5px;color:var(--ink2);white-space:nowrap}
@@ -237,6 +246,7 @@ select{font:inherit;font-size:13.5px;border:0;background:var(--strip);color:var(
       <button class="toggle" id="missTgl">Missed only</button>
     </div>
   </div>
+  <div id="handoff" class="handoff"></div>
   <div id="stage"></div>
   <div class="foot">
     <button class="linkbtn" id="progBtn">Progress by line</button>
@@ -295,7 +305,7 @@ function load(){
 let lastSig=null;
 if(!S.at&&S.pos>0) S.at=1+S.pos; /* older saves had no time stamp: the device further into the deck wins */
 const placeSig=()=>[S.line,S.part,S.type,S.mode,S.missed,S.pos,S.round,(S.queue||[]).length,(S.queue||[])[0],(S.queue||[])[S.pos]].join("|");
-function save(){const sig=placeSig(); if(sig!==lastSig){ if(lastSig!==null){S.at=Date.now(); setTimeout(()=>{try{queueSync();}catch(e){}},0);} lastSig=sig; }
+function save(){const sig=placeSig(); if(sig!==lastSig){ if(lastSig!==null){S.at=Date.now(); const h=document.getElementById("handoff"); if(h) h.classList.remove("on"); setTimeout(()=>{try{queueSync();}catch(e){}},0);} lastSig=sig; }
   try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
 const isMissed=id=>S.st[id]&&S.st[id].s==="m";
 function idsOf(g,type){let ids=[]; if(type!=="say") ids=ids.concat(g.topic); if(type!=="topic") ids=ids.concat(g.say); return ids;}
@@ -342,7 +352,7 @@ function resetReveal(c){
 const allDone=()=>!R||!R.steps||R.steps.every((s,i)=>s>=R.max[i]);
 
 /* ---------- render ---------- */
-const BUILD="updated 17 Nov, 9:30 pm";
+const BUILD="updated 17 Nov, 9:45 pm";
 const fmt=s=>(s||"").replace(/\[\[(.+?)\]\]/g,'<span class="fig">$1</span>');
 function counts(ids){let k=0,m=0; ids.forEach(id=>{const s=S.st[id]; if(s&&s.s==="k")k++; else if(s&&s.s==="m")m++;}); return {k,m,n:ids.length-k-m,t:ids.length};}
 function render(){
@@ -532,12 +542,6 @@ function mergeIn(data){
   if(rz>(S.resetAt||0)){ Object.keys(S.st).forEach(id=>{ if((S.st[id].t||0)<rz) delete S.st[id]; }); S.resetAt=rz; }
   Object.entries(fromCompact(data.st)).forEach(([id,o])=>{ if((o.t||0)<(S.resetAt||0)) return; const l=S.st[id];
     if(!l||(o.t||0)>(l.t||0)||(!(o.t||l.t)&&(o.seen||0)>(l.seen||0))) S.st[id]=o; });
-  const a=data.at;
-  if(a&&a.t>(S.at||0)&&Array.isArray(a.queue)){ const q=a.queue.filter(id=>cards[id]);
-    if(q.length){ const cur=a.queue[a.pos]; let pos=q.indexOf(cur); if(pos<0) pos=Math.min(a.pos,q.length);
-      const moved=JSON.stringify([S.line,S.type,S.queue&&S.queue[S.pos]])!==JSON.stringify([a.line,a.type,cur]);
-      Object.assign(S,{line:a.line,part:a.part,type:a.type,mode:a.mode,missed:!!a.missed,queue:q,pos,round:a.round||1,back:false,at:a.t}); R=null; lastSig=placeSig();
-      if(moved) setTimeout(()=>toast("Continuing from your other device"),300); } }
   save();
 }
 async function gh(path,opt){opt=opt||{};
@@ -545,11 +549,22 @@ async function gh(path,opt){opt=opt||{};
     headers:Object.assign({Authorization:"Bearer "+SY.token,Accept:"application/vnd.github+json"},opt.body?{"Content-Type":"application/json"}:{})});
   if(!r.ok){const e=new Error("HTTP "+r.status); e.status=r.status; throw e;} return r.json();}
 const myFile=()=>"dev-"+SY.dev+".json";
+function devName(){const u=navigator.userAgent; if(/iPhone/.test(u)) return "iPhone"; if(/iPad/.test(u)||(/Macintosh/.test(u)&&navigator.maxTouchPoints>1)) return "iPad";
+  if(/Android/.test(u)) return /Mobile/.test(u)?"Android phone":"Android tablet"; if(/Mac/.test(u)) return "Mac"; if(/Windows/.test(u)) return "Windows PC"; return "other device";}
+let others=[];
+function placeText(a){const id=a.queue[a.pos], c=cards[id]; return `card ${a.pos+1}`+(c&&c.topic?` · ${c.topic.name}`:"");}
+function showHandoff(){ const el=$("#handoff"); const cur=S.queue&&S.queue[S.pos];
+  const b=others.filter(a=>a.queue[a.pos]!==cur).sort((x,y)=>y.t-x.t)[0];
+  if(!b||b.t<=(S.at||0)||b.t===SY.dismissed){ el.classList.remove("on"); return; }
+  el.innerHTML=`<div class="tx">Your ${b.name||"other device"} is on ${placeText(b)}<small>${b.t>1e12?"Last moved at "+hhmm(new Date(b.t)):""}</small></div><div class="bt"><button id="hStay">Stay here</button><button class="go" id="hGo">Go there</button></div>`;
+  el.classList.add("on");
+  $("#hGo").onclick=()=>{el.classList.remove("on"); jumpTo(b);};
+  $("#hStay").onclick=()=>{el.classList.remove("on"); SY.dismissed=b.t; saveSY();}; }
 async function readDocs(g){ const out=[];
   for(const [name,f] of Object.entries(g.files||{})){ if(!(name===GFN||/^dev-.+\.json$/.test(name))) continue;
-    try{ const txt=f.truncated?await (await fetch(f.raw_url,{cache:"no-store"})).text():f.content; const d=JSON.parse(txt); d._own=(name===myFile()); out.push(d); }catch(e){} }
+    try{ const txt=f.truncated?await (await fetch(f.raw_url,{cache:"no-store"})).text():f.content; const d=JSON.parse(txt); d._own=(name===myFile()); d._legacy=(name===GFN); out.push(d); }catch(e){} }
   return out; }
-function newestOther(docs){ let best=null; docs.forEach(d=>{ if(!d._own&&d.at&&Array.isArray(d.at.queue)&&(!best||d.at.t>best.t)) best=d.at; }); return best; }
+function newestOther(docs){ others=docs.filter(d=>!d._own&&!d._legacy&&d.at&&Array.isArray(d.at.queue)&&d.at.queue.length).map(d=>d.at); let best=null; others.forEach(a=>{ if(!best||a.t>best.t) best=a; }); return best; }
 async function findGist(){
   for(let p=1;p<=5;p++){const list=await gh("/gists?per_page=100&page="+p); const g=list.find(x=>x.description===GDESC); if(g) return g.id; if(list.length<100) break;}
   const g=await gh("/gists",{method:"POST",body:{description:GDESC,public:false,files:{[myFile()]:{content:JSON.stringify({v:2,resetAt:S.resetAt||0,st:{}})}}}}); return g.id;
@@ -570,8 +585,9 @@ async function syncNow(){
     const before=JSON.stringify(S.st)+placeSig();
     docs.forEach(d=>mergeIn(Object.assign({},d,{resetAt:rz,at:d._own?null:d.at})));
     if(JSON.stringify(S.st)+placeSig()!==before){ if(R&&!S.back) R=null; render(); }
+    showHandoff();
     const e0=edits;
-    if(SY.dirty) await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[myFile()]:{content:JSON.stringify({v:2,resetAt:S.resetAt||0,st:toCompact(S.st),at:{t:S.at||0,dev:SY.dev,line:S.line,part:S.part,type:S.type,mode:S.mode,missed:S.missed,queue:S.queue,pos:S.pos,round:S.round}})}}}});
+    if(SY.dirty) await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[myFile()]:{content:JSON.stringify({v:2,resetAt:S.resetAt||0,st:toCompact(S.st),at:{t:S.at||0,dev:SY.dev,name:devName(),line:S.line,part:S.part,type:S.type,mode:S.mode,missed:S.missed,queue:S.queue,pos:S.pos,round:S.round}})}}}});
     if(SY.dirty&&edits===e0) SY.dirty=false;
     SY.last=Date.now(); saveSY(); syncLabel("Synced "+hhmm(new Date()));
   }catch(e){
@@ -603,14 +619,14 @@ function jumpTo(a){ const q=a.queue.filter(id=>cards[id]); if(!q.length) return;
 async function onSheet(){
   syncSheet(`<h3>Sync is on</h3><p>Checking…</p>`);
   try{ const g=await gh("/gists/"+SY.gist); remoteAt=newestOther(await readDocs(g)); }catch(e){}
-  const other=!!(remoteAt&&Array.isArray(remoteAt.queue));
-  const where=other?`Your other device was last on <b>card ${remoteAt.pos+1}</b>${remoteAt.t>1e12?" at "+hhmm(new Date(remoteAt.t)):""}.`:"Your other device hasn't saved a place yet. Open the site there once.";
-  syncSheet(`<h3>Sync is on</h3><p>Progress and your place in the deck save to your private GitHub gist.${SY.last?" Last synced "+hhmm(new Date(SY.last))+".":""}</p><p>${where}</p>
-   ${other?'<div class="row" style="justify-content:flex-end;margin-bottom:10px"><button class="btn got" style="flex:0 0 auto" id="sJump">Go to that card</button></div>':""}
+  const list=others.slice().sort((x,y)=>y.t-x.t);
+  const other=false;
+  const where=list.length?list.map((a,k)=>`<div class="devrow"><div class="tx"><b>${a.name||"Other device"}</b> · ${placeText(a)}<small>${a.t>1e12?"Last moved at "+hhmm(new Date(a.t)):""}</small></div><button class="btn" style="flex:0 0 auto;padding:8px 12px" data-go="${k}">Go there</button></div>`).join(""):"No other device has saved a place yet. Open the site there and move one card.";
+  syncSheet(`<h3>Sync is on</h3><p>Progress and your place in the deck save to your private GitHub gist.${SY.last?" Last synced "+hhmm(new Date(SY.last))+".":""}</p><p style="margin-bottom:6px">This is <b>${devName()}</b>${S.queue&&S.queue.length?` · card ${S.pos+1}`:""}.</p><div style="margin-bottom:14px">${where}</div>
    <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="sOff">Turn off here</button><button class="btn ghost" id="sClose">Close</button><button class="btn" style="flex:0 0 auto" id="sNow">Sync now</button></div>`);
   $("#sClose").onclick=closeSync;
   $("#sNow").onclick=async()=>{closeSync(); await syncNow();};
-  if(other) $("#sJump").onclick=()=>{closeSync(); jumpTo(remoteAt);};
+  document.querySelectorAll("#sbox [data-go]").forEach(b=>b.onclick=()=>{closeSync(); jumpTo(list[+b.dataset.go]);});
   $("#sOff").onclick=()=>{SY=null; saveSY(); closeSync(); syncLabel("Sync across devices"); toast("Sync off on this device");};
 }
 $("#syncBtn").onclick=()=>{ if(!SY) setupSheet(); else if(/fix/.test(st8)) setupSheet(); else if(/retry/.test(st8)) syncNow(); else onSheet(); };

@@ -114,12 +114,15 @@ select{font:inherit;font-size:13.5px;border:0;background:var(--strip);color:var(
 .rw.s1{cursor:pointer;border-color:var(--line)}
 .rw.s1 .more{margin-top:6px;height:8px;width:55%;border-radius:4px;background:var(--strip)}
 .rw.s2{border-color:var(--line)}
-.mk{display:flex;flex-direction:column;gap:6px;flex:0 0 auto;margin-left:2px}
-.mk button{width:34px;height:30px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink3);font-size:15px;font-weight:700;cursor:pointer;padding:0}
-.mk button.k.on{background:var(--good);border-color:var(--good);color:#fff}
-.mk button.m.on{background:var(--bad);border-color:var(--bad);color:#fff}
-.rw.kn{opacity:.6}
-.rw.fg{border-color:var(--bad)}
+.rw.s2{cursor:pointer}
+.rw.fg{background:color-mix(in srgb,var(--bad) 8%,transparent);border-color:color-mix(in srgb,var(--bad) 32%,var(--line))}
+.rw.kn{background:color-mix(in srgb,var(--good) 8%,transparent);border-color:color-mix(in srgb,var(--good) 26%,var(--line))}
+.rw.kn .body{opacity:.6}
+.btn.miss.sug{background:color-mix(in srgb,var(--bad) 10%,var(--card));border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+.sync input{width:100%;font:inherit;font-size:14px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);color:var(--ink);margin:0 0 12px}
+.sync ol{margin:0 0 14px;padding-left:20px;font-size:14px;color:var(--ink2);line-height:1.5}
+.sync a{color:var(--accent)}
+.sync .err{color:var(--bad);font-size:13.5px;margin:-4px 0 12px}
 .sync textarea{width:100%;height:70px;font-size:11px;border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--bg);color:var(--ink2);margin:0 0 12px;resize:none}
 .sync .row{gap:8px;flex-wrap:wrap}
 .lbl{font-weight:650;font-size:16px;line-height:1.35;animation:in .22s ease}
@@ -162,7 +165,6 @@ select{font:inherit;font-size:13.5px;border:0;background:var(--strip);color:var(
 .btn kbd{font:inherit;font-size:11px;opacity:.5;margin-left:6px;font-weight:500}
 
 .card.back{cursor:pointer}
-.rw.s2{cursor:default}
 .fliphint{margin-top:16px;font-size:12.5px;color:var(--ink3);text-align:center}
 .flipback{margin-top:10px;font:inherit;font-size:13px;color:var(--ink2);background:none;border:1px solid var(--line,#ddd);border-radius:999px;padding:6px 14px;cursor:pointer}
 .foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:var(--ink3);gap:8px;flex-wrap:wrap}
@@ -238,7 +240,7 @@ select{font:inherit;font-size:13.5px;border:0;background:var(--strip);color:var(
   <div id="stage"></div>
   <div class="foot">
     <button class="linkbtn" id="progBtn">Progress by line</button>
-    <button class="linkbtn" id="syncBtn">Send progress to another device</button>
+    <button class="linkbtn" id="syncBtn">Sync across devices</button>
     <button class="linkbtn" id="resetBtn">Reset progress</button>
   </div>
 </div>
@@ -329,13 +331,14 @@ function rowMax(r){return (r.t||r.src||r.fix||r.note)?2:1;}
 function resetReveal(c){
   if(c&&c.kind==="topic"&&c.payload.rows){const rows=c.payload.rows;R={steps:rows.map(()=>0),max:rows.map(rowMax)};
     const rec=S.st[c.id], r=rec&&rec.r;
-    if(r&&r.some(x=>x===0)){ R.part=true; r.forEach((x,i)=>{ if(x===1&&i<R.max.length) R.steps[i]=R.max[i]; }); }}
+    R.pre=rows.map(()=>false); R.marks=rows.map(()=>null);
+    if(r&&r.some(x=>x===0)){ R.part=true; r.forEach((x,i)=>{ if(x===1&&i<R.max.length){ R.steps[i]=R.max[i]; R.pre[i]=true; } }); }}
   else R=null;
 }
 const allDone=()=>!R||!R.steps||R.steps.every((s,i)=>s>=R.max[i]);
 
 /* ---------- render ---------- */
-const BUILD="updated 17 Nov, 8:30 pm";
+const BUILD="updated 17 Nov, 9 pm";
 const fmt=s=>(s||"").replace(/\[\[(.+?)\]\]/g,'<span class="fig">$1</span>');
 function counts(ids){let k=0,m=0; ids.forEach(id=>{const s=S.st[id]; if(s&&s.s==="k")k++; else if(s&&s.s==="m")m++;}); return {k,m,n:ids.length-k-m,t:ids.length};}
 function render(){
@@ -361,12 +364,13 @@ function render(){
     $("#front").onclick=flip;
     actions([["ghost","‹","prev"],["primary","Show answer","flip"],["ghost","›","next"]]);
   } else {
-    stage.innerHTML=`<div class="card back" id="backcard">${kick}${backHTML(c)}<div class="fliphint">Tap a point to open it<br><button class="flipback" id="flipBack">↺ Flip back</button></div></div>`;
+    stage.innerHTML=`<div class="card back" id="backcard">${kick}${backHTML(c)}<div class="fliphint">${R&&R.steps?"Forgot an open point? Tap it to turn it red. Tap again to undo.<br>":""}<button class="flipback" id="flipBack">↺ Flip back</button></div></div>`;
     requestAnimationFrame(drawEdges);
     bindRows();
     $("#flipBack").onclick=e=>{e.stopPropagation(); unflip();};
     const done=allDone();
-    actions([["ghost","‹","prev"]].concat(R.steps&&!done?[["ghost","Show all","all"]]:[]).concat([["miss","Missed <kbd>1</kbd>","miss"],["got","Got it <kbd>2</kbd>","got"],["ghost","›","next"]]));
+    actions([["ghost","‹","prev"]].concat(R.steps&&!done?[["ghost","Show all","all"]]:[]).concat([[anyRed()?"miss sug":"miss","Missed <kbd>1</kbd>","miss"],["got","Got it <kbd>2</kbd>","got"],["ghost","›","next"]]));
+    if(anyRed()){const g=document.querySelector('#actions [data-a="got"]'); if(g){g.disabled=true; g.title="A point is red, so this card counts as missed";}}
   }
 }
 function chip(c){const ch=`<span class="chip ${c.cls}">${c.label}${c.count?` <span class="ct">· ${c.count}</span>`:""}</span>`;
@@ -387,7 +391,7 @@ function backHTML(c){
   if(c.k==="diagram") return head+diagramHTML(p.g);
   const rows=p.rows.map((r,i)=>rowHTML(r,i)).join("");
   const cue=(allDone()&&(p.cue||p.hook))?`<div class="cue"><div class="k">Learning cue</div>${p.cue?`<div class="t">${fmt(p.cue)}</div>`:""}${p.hook?`<div class="h">${p.hook}</div>`:""}</div>`:"";
-  const hint=allDone()?`<div class="recall">Mark each point ✓ or ✗. Next time, the ✓ points stay open and you only redo the ✗ ones.</div>`:R.part?`<div class="recall">You knew the faded points last time. Recall the closed ones, then mark them ✓ or ✗.</div>`:`<div class="recall">Say each point aloud, then tap to check. First tap: label. Second tap: line and figures.</div>`;
+  const hint=allDone()?"":R.part?`<div class="recall">Green points: you knew them last time. Recall the closed ones.</div>`:`<div class="recall">Say each point aloud, then tap to check. First tap: label. Second tap: line and figures.</div>`;
   return head+hint+`<div class="rows">${rows}</div>`+cue;
 }
 /* ---------- diagrams ---------- */
@@ -448,15 +452,16 @@ function rowHTML(r,i){
     if(meta.length) h+=`<div class="meta">${meta.join("")}</div>`;
     if(r.note) h+=`<div class="note">${r.note}</div>`;
   }
-  const mk=curMarks()[i];
-  const cls=mk===1?" kn":mk===0?" fg":"";
-  return `<div class="rw s2${cls}" data-i="${i}"><div class="n">${i+1}</div><div class="body">${h}</div><div class="mk"><button class="k${mk===1?" on":""}" data-mk="1" data-i="${i}" aria-label="I knew this">✓</button><button class="m${mk===0?" on":""}" data-mk="0" data-i="${i}" aria-label="I forgot this">✗</button></div></div>`;
+  const cls=isRed(i)?" fg":(R.pre&&R.pre[i])?" kn":"";
+  return `<div class="rw s2${cls}" data-i="${i}"><div class="n">${i+1}</div><div class="body">${h}</div></div>`;
 }
-function bindRows(){document.querySelectorAll(".rw.s0,.rw.s1").forEach(el=>el.onclick=()=>{step(+el.dataset.i);});
-  document.querySelectorAll(".mk button").forEach(b=>b.onclick=e=>{e.stopPropagation(); mark(+b.dataset.i,+b.dataset.mk);});}
+function bindRows(){document.querySelectorAll(".rw").forEach(el=>el.onclick=()=>{const i=+el.dataset.i; if(el.classList.contains("s2")) toggleRed(i); else step(i);});}
 function curId(){return S.queue[S.pos];}
 function curMarks(){const o=S.st[curId()]; return (o&&o.r)||[];}
-function mark(i,v){const id=curId(), o=S.st[id]||(S.st[id]={seen:0,miss:0}); const r=(o.r||[]).slice(); r[i]=(r[i]===v)?null:v; o.r=r; o.t=Date.now(); save(); render();}
+function isRed(i){return !!(R&&R.marks&&R.marks[i]===0);}
+const anyRed=()=>!!(R&&R.steps&&R.steps.some((_,i)=>isRed(i)));
+function toggleRed(i){const id=curId(), o=S.st[id]||(S.st[id]={seen:0,miss:0}); const r=(o.r||[]).slice();
+  R.marks[i]=R.marks[i]===0?((R.pre&&R.pre[i])?1:null):0; r[i]=R.marks[i]; o.r=r; o.t=Date.now(); save(); queueSync(); render();}
 function step(i){ if(!R.steps)return; if(R.steps[i]<R.max[i]){R.steps[i]++; render();
   const target=allDone()?document.querySelector('.cue')||document.querySelector('.rw[data-i="'+i+'"]'):document.querySelector('.rw[data-i="'+i+'"]');
   if(target) target.scrollIntoView({block:'nearest',behavior:'smooth'}); } }
@@ -483,9 +488,11 @@ function next(){ if(S.pos<S.queue.length){S.pos++; S.back=false; R=null; save();
 function flip(){const card=document.querySelector(".card"); if(card) card.classList.add("flipping"); setTimeout(()=>{S.back=true; save(); render();},120);}
 function prev(){ if(S.pos>0){S.pos--; S.back=false; R=null; save(); render(); window.scrollTo(0,0);} }
 function grade(s){
+  if(s==="k"&&anyRed()) s="m";
   const id=S.queue[S.pos], o=S.st[id]||{seen:0,miss:0};
+  if(R&&R.steps){o.r=R.steps.map((st,i)=>R.marks[i]===0?0:st>0?1:null);}
   o.seen++; o.s=s; o.t=Date.now(); if(s==="m") o.miss++;
-  S.st[id]=o; S.pos++; S.back=false; R=null; save(); render(); window.scrollTo(0,0);
+  S.st[id]=o; S.pos++; S.back=false; R=null; save(); queueSync(); render(); window.scrollTo(0,0);
 }
 /* ---------- progress sheet ---------- */
 function progressSheet(){
@@ -509,53 +516,79 @@ $("#lineSel").onchange=e=>{S.line=e.target.value; S.part="all"; rebuild("New rou
 $("#partSel").onchange=e=>{S.part=e.target.value; rebuild("New round");};
 $("#missTgl").onclick=()=>{S.missed=!S.missed; rebuild(S.missed?"Only cards you missed":"All cards");};
 $("#progBtn").onclick=progressSheet;
-/* ---------- move progress between devices ---------- */
-const b64u=u8=>{let s=""; for(let i=0;i<u8.length;i+=0x8000) s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000)); return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");};
-const unb64u=s=>{s=s.replace(/-/g,"+").replace(/_/g,"/"); const b=atob(s); const u=new Uint8Array(b.length); for(let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return u;};
-async function pipe(u8,stream){const r=new Response(new Blob([u8]).stream().pipeThrough(stream)); return new Uint8Array(await r.arrayBuffer());}
-async function packProgress(){
-  const st={}; Object.entries(S.st).forEach(([id,o])=>{ if(o.s||(o.r&&o.r.some(x=>x===0||x===1))) st[id]=[o.s||"",o.seen||0,o.miss||0,o.t||0,(o.r||[]).map(x=>x===1?"1":x===0?"0":"_").join("")]; });
-  const raw=new TextEncoder().encode(JSON.stringify(st));
-  if(window.CompressionStream){ try{ return "z"+b64u(await pipe(raw,new CompressionStream("deflate-raw"))); }catch(e){} }
-  return "u"+b64u(raw);
+/* ---------- sync through a private GitHub gist ---------- */
+const SK="gs3sync.v1", GFN="gs3-progress.json", GDESC="GS3 flashcards progress (used by the flashcard site; do not delete)";
+let SY=null; try{SY=JSON.parse(localStorage.getItem(SK));}catch(e){}
+const saveSY=()=>{try{SY?localStorage.setItem(SK,JSON.stringify(SY)):localStorage.removeItem(SK);}catch(e){}};
+function toCompact(st){const o={}; Object.entries(st).forEach(([id,x])=>{ if(x.s||(x.r&&x.r.some(v=>v===0||v===1))) o[id]=[x.s||"",x.seen||0,x.miss||0,x.t||0,(x.r||[]).map(v=>v===1?"1":v===0?"0":"_").join("")]; }); return o;}
+function fromCompact(c){const out={}; Object.entries(c||{}).forEach(([id,a])=>{const o={seen:a[1],miss:a[2]}; if(a[0]) o.s=a[0]; if(a[3]) o.t=a[3]; if(a[4]) o.r=[...a[4]].map(ch=>ch==="1"?1:ch==="0"?0:null); out[id]=o;}); return out;}
+function mergeIn(data){
+  const rz=data.resetAt||0;
+  if(rz>(S.resetAt||0)){ Object.keys(S.st).forEach(id=>{ if((S.st[id].t||0)<rz) delete S.st[id]; }); S.resetAt=rz; }
+  Object.entries(fromCompact(data.st)).forEach(([id,o])=>{ if((o.t||0)<(S.resetAt||0)) return; const l=S.st[id];
+    if(!l||(o.t||0)>(l.t||0)||(!(o.t||l.t)&&(o.seen||0)>(l.seen||0))) S.st[id]=o; });
+  save();
 }
-async function unpackProgress(code){
-  let raw=unb64u(code.slice(1));
-  if(code[0]==="z") raw=await pipe(raw,new DecompressionStream("deflate-raw"));
-  const st=JSON.parse(new TextDecoder().decode(raw)), out={};
-  Object.entries(st).forEach(([id,a])=>{ const o={seen:a[1],miss:a[2]}; if(a[0]) o.s=a[0]; if(a[3]) o.t=a[3]; if(a[4]) o.r=[...a[4]].map(c=>c==="1"?1:c==="0"?0:null); out[id]=o; });
-  return out;
+async function gh(path,opt){opt=opt||{};
+  const r=await fetch("https://api.github.com"+path,{cache:"no-store",method:opt.method||"GET",body:opt.body?JSON.stringify(opt.body):undefined,
+    headers:Object.assign({Authorization:"Bearer "+SY.token,Accept:"application/vnd.github+json"},opt.body?{"Content-Type":"application/json"}:{})});
+  if(!r.ok){const e=new Error("HTTP "+r.status); e.status=r.status; throw e;} return r.json();}
+async function findGist(){
+  for(let p=1;p<=5;p++){const list=await gh("/gists?per_page=100&page="+p); const g=list.find(x=>x.description===GDESC); if(g) return g.id; if(list.length<100) break;}
+  const g=await gh("/gists",{method:"POST",body:{description:GDESC,public:false,files:{[GFN]:{content:JSON.stringify({v:1,resetAt:S.resetAt||0,st:{}})}}}}); return g.id;
 }
-function mergeProgress(inc){ let n=0;
-  Object.entries(inc).forEach(([id,o])=>{ const l=S.st[id];
-    const newer=!l||(o.t||0)>(l.t||0)||(!(o.t||l.t)&&(o.seen||0)>(l.seen||0));
-    if(newer){S.st[id]=o; n++;} });
-  save(); return n; }
+let syncing=false, again=false, st8="", sTimer=null;
+function syncLabel(t){st8=t; const b=$("#syncBtn"); if(b) b.textContent=t;}
+const hhmm=d=>d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+function queueSync(){ if(!SY) return; clearTimeout(sTimer); syncLabel("Saving…"); sTimer=setTimeout(syncNow,2500); }
+async function syncNow(){
+  if(!SY) return; if(syncing){again=true; return;} syncing=true; clearTimeout(sTimer);
+  try{
+    if(!SY.gist){SY.gist=await findGist(); saveSY();}
+    const g=await gh("/gists/"+SY.gist); const f=g.files&&g.files[GFN];
+    let txt=f?f.content:""; if(f&&f.truncated){txt=await (await fetch(f.raw_url,{cache:"no-store"})).text();}
+    if(txt){ const before=JSON.stringify(S.st); mergeIn(JSON.parse(txt)); if(JSON.stringify(S.st)!==before){ if(R&&!S.back) R=null; render(); } }
+    await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[GFN]:{content:JSON.stringify({v:1,resetAt:S.resetAt||0,st:toCompact(S.st)})}}}});
+    SY.last=Date.now(); saveSY(); syncLabel("Synced "+hhmm(new Date()));
+  }catch(e){
+    if(e.status===404&&SY.gist){SY.gist=null; saveSY(); again=true;}
+    syncLabel(e.status===401?"Sync key stopped working: tap to fix":"Not synced: tap to retry");
+  }
+  syncing=false; if(again){again=false; syncNow();}
+}
 function syncSheet(html){$("#sbox").innerHTML=html; $("#smodal").classList.add("on");}
-$("#syncBtn").onclick=async()=>{
-  const code=await packProgress(), n=Object.keys(S.st).filter(id=>S.st[id].s||S.st[id].r).length;
-  const url=location.origin+location.pathname+"#sync="+code;
-  syncSheet(`<h3>Send progress</h3><p>Open this link on your other device. It adds the ${n} card${n===1?"":"s"} you have marked here; for each card, whichever device marked it last wins.</p>
-    <textarea readonly id="sUrl">${url}</textarea>
-    <div class="row" style="justify-content:flex-end">${navigator.share?'<button class="btn" style="flex:0 0 auto" id="sShare">Share…</button>':""}<button class="btn" style="flex:0 0 auto" id="sCopy">Copy link</button><button class="btn ghost" id="sClose">Close</button></div>`);
-  $("#sClose").onclick=()=>$("#smodal").classList.remove("on");
-  $("#sCopy").onclick=async()=>{ try{await navigator.clipboard.writeText(url); toast("Link copied");}catch(e){ const t=$("#sUrl"); t.select(); document.execCommand("copy"); toast("Link copied"); } };
-  if(navigator.share) $("#sShare").onclick=()=>navigator.share({title:"GS3 progress",url}).catch(()=>{});
-};
-$("#smodal").onclick=e=>{if(e.target.id==="smodal") $("#smodal").classList.remove("on");};
-(async()=>{ const m=location.hash.match(/^#sync=(.+)$/); if(!m) return;
-  history.replaceState(null,"",location.pathname+location.search);
-  let inc; try{ inc=await unpackProgress(m[1]); }catch(e){ syncSheet(`<h3>Link didn't work</h3><p>This progress link is broken or cut short. Send it again from the other device.</p><div class="row"><button class="btn ghost" id="sClose">Close</button></div>`); $("#sClose").onclick=()=>$("#smodal").classList.remove("on"); return; }
-  const n=Object.keys(inc).length;
-  syncSheet(`<h3>Bring in progress?</h3><p>This link carries ${n} marked card${n===1?"":"s"} from your other device. Your progress here is kept; for each card, whichever device marked it last wins.</p>
-    <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="sClose">Not now</button><button class="btn got" style="flex:0 0 auto" id="sLoad">Bring it in</button></div>`);
-  $("#sClose").onclick=()=>$("#smodal").classList.remove("on");
-  $("#sLoad").onclick=()=>{ const k=mergeProgress(inc); $("#smodal").classList.remove("on"); R=null; render(); toast(k+" cards updated"); };
-})();
+const closeSync=()=>$("#smodal").classList.remove("on");
+function setupSheet(err){
+  syncSheet(`<h3>Sync across devices</h3>
+   <ol><li>Open <a href="https://github.com/settings/tokens/new?scopes=gist&description=GS3%20flashcards%20sync" target="_blank" rel="noopener">this GitHub page</a> and sign in.</li>
+   <li>Set <b>Expiration</b> to <b>No expiration</b>. Leave only <b>gist</b> ticked.</li>
+   <li>Press <b>Generate token</b> at the bottom and copy the key (starts with <b>ghp_</b>).</li>
+   <li>Paste it below. Do this once on each device, using the same key.</li></ol>
+   <input id="sTok" type="password" placeholder="ghp_…" autocomplete="off" autocapitalize="off" spellcheck="false">
+   ${err?`<div class="err">${err}</div>`:""}
+   <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="sClose">Cancel</button><button class="btn got" style="flex:0 0 auto" id="sGo">Connect</button></div>`);
+  $("#sClose").onclick=closeSync;
+  $("#sGo").onclick=async()=>{ const tok=$("#sTok").value.trim(); if(!tok){$("#sTok").focus(); return;}
+    $("#sGo").disabled=true; $("#sGo").textContent="Connecting…";
+    SY={token:tok}; try{ SY.gist=await findGist(); saveSY(); closeSync(); await syncNow(); toast("Sync is on"); }
+    catch(e){ SY=null; saveSY(); setupSheet(e.status===401?"GitHub didn't accept that key. Copy it again, all of it.":e.status===403||e.status===404?"That key can't make gists. Make a new one with only 'gist' ticked.":"Couldn't reach GitHub. Check your internet and try again."); }
+  };
+}
+function onSheet(){
+  syncSheet(`<h3>Sync is on</h3><p>Your progress saves to your private GitHub gist and loads on your other devices by itself.${SY.last?" Last synced "+hhmm(new Date(SY.last))+".":""}</p>
+   <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="sOff">Turn off here</button><button class="btn ghost" id="sClose">Close</button><button class="btn" style="flex:0 0 auto" id="sNow">Sync now</button></div>`);
+  $("#sClose").onclick=closeSync;
+  $("#sNow").onclick=async()=>{closeSync(); await syncNow();};
+  $("#sOff").onclick=()=>{SY=null; saveSY(); closeSync(); syncLabel("Sync across devices"); toast("Sync off on this device");};
+}
+$("#syncBtn").onclick=()=>{ if(!SY) setupSheet(); else if(/fix/.test(st8)) setupSheet(); else if(/retry/.test(st8)) syncNow(); else onSheet(); };
+$("#smodal").onclick=e=>{if(e.target.id==="smodal") closeSync();};
+document.addEventListener("visibilitychange",()=>{ if(!SY) return; if(document.visibilityState==="visible") syncNow(); else if(sTimer) syncNow(); });
+syncLabel(SY?"Syncing…":"Sync across devices"); if(SY) syncNow();
 $("#pmodal").onclick=e=>{if(e.target.id==="pmodal") $("#pmodal").classList.remove("on");};
 $("#resetBtn").onclick=()=>$("#modal").classList.add("on");
 $("#mCancel").onclick=()=>$("#modal").classList.remove("on");
-$("#mOk").onclick=()=>{const keep={type:S.type,line:S.line,part:S.part,mode:S.mode}; S={v:2,...keep,missed:false,queue:null,pos:0,st:{},back:false}; buildQueue(); R=null; $("#modal").classList.remove("on"); render(); toast("Progress reset");};
+$("#mOk").onclick=()=>{const keep={type:S.type,line:S.line,part:S.part,mode:S.mode}; S={v:2,...keep,missed:false,queue:null,pos:0,st:{},back:false,resetAt:Date.now()}; queueSync(); buildQueue(); R=null; $("#modal").classList.remove("on"); render(); toast("Progress reset");};
 let tt; function toast(m){const t=$("#toast"); t.textContent=m; t.classList.add("on"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("on"),1600);}
 document.addEventListener("keydown",e=>{
   if($("#modal").classList.contains("on")||$("#pmodal").classList.contains("on")||$("#smodal").classList.contains("on")) return;

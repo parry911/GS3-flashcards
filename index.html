@@ -223,12 +223,12 @@ select{font:inherit;font-size:13.5px;border:0;background:var(--strip);color:var(
     </div>
     <div class="row">
       <div class="seg" id="typeSeg">
-        <button data-v="all">All cards</button><button data-v="topic">Topic cards</button><button data-v="say">You want to say</button>
+        <button data-v="all">All</button><button data-v="topic">Topic</button><button data-v="say">Say it</button><button data-v="data">Data</button><button data-v="define">Define</button>
       </div>
     </div>
     <div class="row">
       <div class="seg" id="modeSeg">
-        <button data-v="order">In order</button><button data-v="topics">Shuffle topics</button><button data-v="all">Shuffle all</button>
+        <button data-v="order">In order</button><button data-v="topics">Shuffle topics</button><button data-v="all">Shuffle all</button><button data-v="smart">Smart</button>
       </div>
     </div>
     <div class="progress">
@@ -298,7 +298,7 @@ const placeSig=()=>[S.line,S.part,S.type,S.mode,S.missed,S.pos,S.round,(S.queue|
 function save(){const sig=placeSig(); if(sig!==lastSig){ if(lastSig!==null){S.at=Date.now(); setTimeout(()=>{try{queueSync();}catch(e){}},0);} lastSig=sig; }
   try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
 const isMissed=id=>S.st[id]&&S.st[id].s==="m";
-function idsOf(g,type){let ids=[]; if(type!=="say") ids=ids.concat(g.topic); if(type!=="topic") ids=ids.concat(g.say); return ids;}
+function idsOf(g,type){ if(type==="data"||type==="define") return g.topic.filter(id=>cards[id].k===type); let ids=[]; if(type!=="say") ids=ids.concat(g.topic); if(type!=="topic") ids=ids.concat(g.say); return ids;}
 function scopeGroups(){
   return groups.filter(g=>(S.line==="all"||g.line===S.line)&&(S.part==="all"||g.part===S.part));
 }
@@ -306,15 +306,32 @@ function filteredGroups(){
   return scopeGroups().map(g=>{let ids=idsOf(g,S.type); if(S.missed) ids=ids.filter(isMissed); return {key:g.key,ids};}).filter(g=>g.ids.length);
 }
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+/* Smart order: weakest first, then cards due for review, new cards mixed in, well-known cards last.
+   A known card comes due again after 1, 3, 7, 14, 30 or 60 days, longer the more often you've got it right. */
+const DAY=864e5, GAPS=[1,3,7,14,30,60];
+function smartQueue(ids){
+  const now=Date.now(), weak=[], due=[], fresh=[], later=[];
+  ids.forEach(id=>{const o=S.st[id];
+    if(!o||!o.s){ fresh.push(id); return; }
+    if(o.s==="m"){ weak.push([id,-(o.miss/Math.max(1,o.seen)),o.t||0]); return; }
+    const strength=Math.max(1,(o.seen-o.miss)-o.miss), gap=GAPS[Math.min(strength,GAPS.length)-1]*DAY, over=(now-(o.t||0))/gap;
+    (over>=1?due:later).push([id,-over]); });
+  weak.sort((a,b)=>a[1]-b[1]||a[2]-b[2]); due.sort((a,b)=>a[1]-b[1]); later.sort((a,b)=>a[1]-b[1]);
+  const rev=weak.concat(due).map(x=>x[0]), q=[]; let i=0,j=0;
+  while(i<rev.length||j<fresh.length){ for(let k=0;k<2&&i<rev.length;k++) q.push(rev[i++]); if(j<fresh.length) q.push(fresh[j++]); }
+  S.dueN=q.length; return q.concat(later.map(x=>x[0]));
+}
 function buildQueue(){
   let gs=filteredGroups(), q;
   if(S.mode==="order"){ q=gs.flatMap(g=>g.ids); }
   else if(S.mode==="topics"){
     gs=shuffle(gs); const miss=gs.filter(g=>g.ids.some(isMissed)), rest=gs.filter(g=>!g.ids.some(isMissed));
     q=miss.concat(rest).flatMap(g=>g.ids);
-  } else {
+  } else if(S.mode==="smart"){ q=smartQueue(gs.flatMap(g=>g.ids)); }
+  else {
     const all=shuffle(gs.flatMap(g=>g.ids)); q=all.filter(isMissed).concat(all.filter(i=>!isMissed(i)));
   }
+  if(S.mode!=="smart") S.dueN=null;
   S.queue=q; S.round=1; S.pos=0; S.back=false; save();
 }
 function validQueue(){return Array.isArray(S.queue)&&S.queue.every(id=>cards[id]);}
@@ -342,7 +359,7 @@ function resetReveal(c){
 const allDone=()=>!R||!R.steps||R.steps.every((s,i)=>s>=R.max[i]);
 
 /* ---------- render ---------- */
-const BUILD="updated 17 Nov, 9:30 pm";
+const BUILD="updated 20 Nov, 8:45 pm";
 const fmt=s=>(s||"").replace(/\[\[(.+?)\]\]/g,'<span class="fig">$1</span>');
 function counts(ids){let k=0,m=0; ids.forEach(id=>{const s=S.st[id]; if(s&&s.s==="k")k++; else if(s&&s.s==="m")m++;}); return {k,m,n:ids.length-k-m,t:ids.length};}
 function render(){
@@ -488,7 +505,8 @@ function actions(list){
 }
 function act(a){({flip,prev,next,all:showAll,miss:()=>grade("m"),got:()=>grade("k")})[a]();}
 function unflip(){const card=document.querySelector(".card"); if(card) card.classList.add("flipping"); setTimeout(()=>{S.back=false; R=null; save(); render();},120);}
-function next(){ if(S.pos<S.queue.length){S.pos++; S.back=false; R=null; save(); render(); window.scrollTo(0,0);} }
+function dueCheck(){ if(S.mode==="smart"&&S.dueN&&S.pos===S.dueN&&S.pos<S.queue.length) setTimeout(()=>toast("Due cards done · the rest you know well"),200); }
+function next(){ if(S.pos<S.queue.length){S.pos++; dueCheck(); S.back=false; R=null; save(); render(); window.scrollTo(0,0);} }
 function flip(){const card=document.querySelector(".card"); if(card) card.classList.add("flipping"); setTimeout(()=>{S.back=true; save(); render();},120);}
 function prev(){ if(S.pos>0){S.pos--; S.back=false; R=null; save(); render(); window.scrollTo(0,0);} }
 function grade(s){
@@ -496,7 +514,7 @@ function grade(s){
   const id=S.queue[S.pos], o=S.st[id]||{seen:0,miss:0};
   if(R&&R.steps){o.r=R.steps.map((st,i)=>R.marks[i]===0?0:st>0?1:null);}
   o.seen++; o.s=s; o.t=Date.now(); if(s==="m") o.miss++;
-  S.st[id]=o; S.pos++; S.back=false; R=null; save(); queueSync(); render(); window.scrollTo(0,0);
+  S.st[id]=o; S.pos++; dueCheck(); S.back=false; R=null; save(); queueSync(); render(); window.scrollTo(0,0);
 }
 /* ---------- progress sheet ---------- */
 function progressSheet(){
@@ -513,9 +531,20 @@ function progressSheet(){
 }
 /* ---------- controls ---------- */
 function rebuild(msg){buildQueue(); R=null; render(); if(msg) toast(msg);}
-document.querySelectorAll("#typeSeg button").forEach(b=>b.onclick=()=>{ if(S.type===b.dataset.v)return; S.type=b.dataset.v; rebuild("New round");});
+/* each filter keeps its own place: leaving All for Data and coming back puts you where you were */
+const placeKey=()=>[S.type,S.line,S.part,S.missed].join("|");
+const TNAME={all:"All cards",topic:"Topic cards",say:"You want to say",data:"Data cards",define:"Definitions"};
+document.querySelectorAll("#typeSeg button").forEach(b=>b.onclick=()=>{ if(S.type===b.dataset.v)return;
+  const P=S.places||(S.places={}); P[placeKey()]={queue:S.queue,pos:S.pos,round:S.round,mode:S.mode,dueN:S.dueN};
+  S.type=b.dataset.v; const k=placeKey(), p=P[k]; delete P[k];
+  const ks=Object.keys(P); while(ks.length>6) delete P[ks.shift()];
+  if(p&&Array.isArray(p.queue)&&p.queue.length&&p.queue.every(id=>cards[id])){
+    Object.assign(S,{queue:p.queue,pos:Math.min(p.pos,p.queue.length),round:p.round||1,mode:p.mode,dueN:p.dueN,back:false}); R=null; save(); render();
+    toast(TNAME[S.type]+" · back to card "+Math.min(S.pos+1,S.queue.length)); return; }
+  if((S.type==="data"||S.type==="define")&&S.mode!=="smart") S.mode="smart";
+  rebuild(TNAME[S.type]+(S.mode==="smart"?" · smart order":"")); });
 document.querySelectorAll("#modeSeg button").forEach(b=>b.onclick=()=>{ S.mode=b.dataset.v;
-  rebuild(S.mode==="order"?"In page order":S.mode==="topics"?"Topics shuffled · each topic's cards stay together":"Every card shuffled");});
+  rebuild(S.mode==="order"?"In page order":S.mode==="topics"?"Topics shuffled · each topic's cards stay together":S.mode==="smart"?"Smart · weakest and due cards first":"Every card shuffled");});
 $("#lineSel").onchange=e=>{S.line=e.target.value; S.part="all"; rebuild("New round");};
 $("#partSel").onchange=e=>{S.part=e.target.value; rebuild("New round");};
 $("#missTgl").onclick=()=>{S.missed=!S.missed; rebuild(S.missed?"Only cards you missed":"All cards");};
@@ -536,7 +565,7 @@ function mergeIn(data){
   if(a&&a.t>(S.at||0)&&Array.isArray(a.queue)){ const q=a.queue.filter(id=>cards[id]);
     if(q.length){ const cur=a.queue[a.pos]; let pos=q.indexOf(cur); if(pos<0) pos=Math.min(a.pos,q.length);
       const moved=JSON.stringify([S.line,S.type,S.queue&&S.queue[S.pos]])!==JSON.stringify([a.line,a.type,cur]);
-      Object.assign(S,{line:a.line,part:a.part,type:a.type,mode:a.mode,missed:!!a.missed,queue:q,pos,round:a.round||1,back:false,at:a.t}); R=null; lastSig=placeSig();
+      Object.assign(S,{line:a.line,part:a.part,type:a.type,mode:a.mode,missed:!!a.missed,queue:q,pos,round:a.round||1,dueN:a.dueN,back:false,at:a.t}); R=null; lastSig=placeSig();
       if(moved) setTimeout(()=>toast("Continuing from your other device"),300); } }
   save();
 }
@@ -571,7 +600,7 @@ async function syncNow(){
     docs.forEach(d=>mergeIn(Object.assign({},d,{resetAt:rz,at:d._own?null:d.at})));
     if(JSON.stringify(S.st)+placeSig()!==before){ if(R&&!S.back) R=null; render(); }
     const e0=edits;
-    if(SY.dirty) await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[myFile()]:{content:JSON.stringify({v:2,resetAt:S.resetAt||0,st:toCompact(S.st),at:{t:S.at||0,dev:SY.dev,line:S.line,part:S.part,type:S.type,mode:S.mode,missed:S.missed,queue:S.queue,pos:S.pos,round:S.round}})}}}});
+    if(SY.dirty) await gh("/gists/"+SY.gist,{method:"PATCH",body:{files:{[myFile()]:{content:JSON.stringify({v:2,resetAt:S.resetAt||0,st:toCompact(S.st),at:{t:S.at||0,dev:SY.dev,line:S.line,part:S.part,type:S.type,mode:S.mode,missed:S.missed,queue:S.queue,pos:S.pos,round:S.round,dueN:S.dueN}})}}}});
     if(SY.dirty&&edits===e0) SY.dirty=false;
     SY.last=Date.now(); saveSY(); syncLabel("Synced "+hhmm(new Date()));
   }catch(e){
@@ -599,7 +628,7 @@ function setupSheet(err){
   };
 }
 function jumpTo(a){ const q=a.queue.filter(id=>cards[id]); if(!q.length) return; let pos=q.indexOf(a.queue[a.pos]); if(pos<0) pos=Math.min(a.pos,q.length-1);
-  Object.assign(S,{line:a.line,part:a.part,type:a.type,mode:a.mode,missed:!!a.missed,queue:q,pos,round:a.round||1,back:false}); R=null; save(); render(); window.scrollTo(0,0); toast("Moved to card "+(pos+1)); }
+  Object.assign(S,{line:a.line,part:a.part,type:a.type,mode:a.mode,missed:!!a.missed,queue:q,pos,round:a.round||1,dueN:a.dueN,back:false}); R=null; save(); render(); window.scrollTo(0,0); toast("Moved to card "+(pos+1)); }
 async function onSheet(){
   syncSheet(`<h3>Sync is on</h3><p>Checking…</p>`);
   try{ const g=await gh("/gists/"+SY.gist); remoteAt=newestOther(await readDocs(g)); }catch(e){}
